@@ -86,7 +86,7 @@ class Instance:
         return people_df, people, panel, pool, dropouts, beta_train_stayin, quotas, alternates
     
     def compute_dropout_probabilities(self, betas, write_to_file=True):
-        # given a dictionary of betas, calculate the dropout probability for every person and write it to a file
+        '''given a dictionary of betas, calculate the dropout probability for every person and write it to a file'''
         dropout_probs = {}
         for agent_id in self.people.keys(): # also computes dropout probs for people in the pool for alt drop out variant
             p_stay = betas["init"]["0"]
@@ -106,14 +106,15 @@ class Instance:
         return dropout_probs
     
     def generate_dropout_samples(self, num_samples, eq_dropout_probs=False, pool_dropouts = False, est_error = 0):
-        # definitely can be written more smartly (e.g. using binomial for each agent)
+        '''generate num_samples dropout samples for the panel and (if pool_dropouts) the pool'''
+        
+        # sets the dropout probabilities for this sampling run (either equal for all agents if we're doing eq_dropout_probs, or the calculated dropout probs with est_error)
         if eq_dropout_probs: # note dropout probs might be different for panel and pool in this setting because trying to preserve expected num for each
             avg_dropout_prob_panel = np.mean([drop_prob for agent, drop_prob in self.dropout_probs.items() if agent in self.panel])
             avg_dropout_prob_pool = np.mean([drop_prob for agent, drop_prob in self.dropout_probs.items() if agent in self.pool])
             dropout_probs = {agent_id: avg_dropout_prob_panel if agent_id in self.panel else avg_dropout_prob_pool for agent_id in self.people.keys()}
         else:
             dropout_probs = {agent_id: np.random.uniform(max(self.dropout_probs[agent_id] - est_error, 0), min(self.dropout_probs[agent_id] + est_error, 1)) for agent_id in self.people.keys()}
-            # dropout_probs = {agent_id: np.clip(self.dropout_probs[agent_id] + np.random.uniform(-est_error, est_error), 0, 1) for agent_id in self.people.keys()}
         
         if dropout_probs is None:
             print("Need to calculate dropout probabilities first.")
@@ -121,6 +122,7 @@ class Instance:
         
         panel_dropout_samples = []
         pool_dropot_samples = []
+        # generate dropout samples by "flipping a coin" for each agent with the estimated dropout probability
         for _ in range(num_samples):
             panel_dropout_sample = []
             for agent_id in self.panel: 
@@ -141,6 +143,7 @@ class Instance:
         return panel_dropout_samples, pool_dropot_samples
     
     def opt_binary(self, alt_budget, pool_dropouts = False, est_error=0, num_train_samples = NUM_BINARY_SAMPLES):
+        '''return the best alternate set for the given alt_budget using the binary loss (ERM-ALTS^{0/1})'''
         num_samples = num_train_samples
         panel_dropout_samples, pool_dropout_samples = self.generate_dropout_samples(num_samples, pool_dropouts=pool_dropouts, est_error=est_error)
         prob = Model(sense=MINIMIZE)
@@ -187,9 +190,11 @@ class Instance:
         return alt_set
     
     def opt_l1_eq_probs(self,alt_budget, pool_dropouts = False, num_train_samples = NUM_L1_SAMPLES):
+        '''return the best alternate set for the given alt_budget using the L1 loss but assuming equal dropout probabilities (ERM-ALTS^1-EQ)'''
         return self.opt_l1(alt_budget, use_betas=False, pool_dropouts=pool_dropouts, num_train_samples=num_train_samples)
     
     def opt_l1(self, alt_budget, use_betas = True, pool_dropouts = False, est_error=0, num_train_samples = NUM_L1_SAMPLES):
+        '''return the best alternate set for the given alt_budget using the L1 loss (ERM-ALTS^1)'''
         num_samples = num_train_samples
         if use_betas:
             panel_dropout_samples, pool_dropout_samples = self.generate_dropout_samples(num_samples, eq_dropout_probs=False, pool_dropouts=pool_dropouts, est_error=est_error)
@@ -243,9 +248,8 @@ class Instance:
     
     
     def loss(self, alt_set, dropout_sets, loss_type = 'l1', verbose = False):
-        '''
-        loss_type: 'l1', 'max_quota_dev_norm', 'max_quota_dev', 'l1_dev_below', 'num_unrepped'
-        '''
+        ''' calculate the loss for a given alternate set and dropout sets, using the given loss type
+        loss_type options: 'l1', 'max_quota_dev_norm', 'max_quota_dev', 'l1_dev_below', 'num_unrepped' '''
         panel_dropout_samples, pool_dropout_samples = dropout_sets 
         losses = []
         for j, panel_dropout_set in enumerate(panel_dropout_samples):
@@ -331,6 +335,7 @@ class Instance:
             f.write(f"{pd.Timestamp.now()},{selection_function},{alt_budget},{num_samples},{alt_set},{obj_func_value}\n")
 
     def greedy_alt_set(self, l1_dist = False, est_error=0):
+        '''run the greedy algorithm to select the best alternate set (GREEDY)'''
         # orders panel members from highest to lowest dropout probability and selects the ``closest'' remaining pool member to replace them
         if self.dropout_probs is None:
             print("Need to calculate dropout probabilities first.")
@@ -355,6 +360,7 @@ class Instance:
         return alt_set
 
     def person_distance(self, person1, person2, use_l1_dist=False):
+        '''measure how similar two people are based on their feature values using either l1 loss or hamming distance'''
         l1_dist = 0.0
         ham_dist = 0.0
         for feature in self.features:
@@ -369,7 +375,8 @@ class Instance:
             return ham_dist
         
     def scaled_practitioner_alt_set(self, alt_budget):
-        # scales down all quotas multiplicatively and selects a quota-compliant panel for that
+        '''scales down all quotas multiplicatively to match the alternate budget and selects a
+        quota-compliant panel for that (QUOTA-BASED)'''
         repeat = True
         relax_quotas = 0
         while repeat:
@@ -408,7 +415,8 @@ class BetaLearner:
             os.makedirs(file_stub)
     
     def learn_betas(self, feature_list):
-        # learn betas based on every instance that has all fatures in feature_list (and only use those features)
+        '''learn betas based on every instance that has all features in feature_list (and only use those features)'''
+        
         useful_instances = []
         feature_values = {feature: set() for feature in feature_list}
         num_params = 1

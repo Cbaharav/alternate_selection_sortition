@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import csv
 
+'''Plotting helper functions'''
+
 PLOT_INSTANCE_NAME = {'Petaluma_2022': 'US-2', 'Deschutes_2024': 'US-3', 'Eugene-2020': 'US-1'}
 PLOT_DATASET_NAME = {'HD': 'US', 'MASS_ALFD': 'Can'}
 

@@ -12,56 +12,16 @@ DATASETS = {"HD": (["Eugene_2020", "Petaluma_2022", "Deschutes_2024"], ["Age Ran
             "MASS_ALDFC": (["ABG", "ABI", "ABP", "ABQ", "ABS", "ABU"], ["AGE", "GENDER", "INDIGENOUS", "RACIAL_MINORITY", "HOUSING"]),
             "MASS_ALDFN": (["ABY", "ABZ", "ACA", "ACB"], ["AGE", "GENDER", "INDIGENOUS", "RACIAL_MINORITY", "INCOME"])}
 
+# name mapping for paper plots 
 PLOT_INSTANCE_NAME = {'Eugene_2020': 'US-1', 'Petaluma_2022': 'US-2', 'Deschutes_2024': 'US-3', 'ABY': 'Can-1', 'ABZ': 'Can-2', 'ACA': 'Can-3', 'ACB': 'Can-4'}
 PLOT_DATASET_NAME = {'HD': 'US', 'MASS': 'Can'}
 
 NUM_L1_SAMPLES = 300
 NUM_BINARY_SAMPLES = 300
-# def get_dropout_rates():
-#     # Deschutes_2024 = Instance("Deschutes_2024")
-#     # Eugene_2020 = Instance("Eugene_2020")
-#     # Petaluma_2022 = Instance("Petaluma_2022")
-#     # instance_list = [Deschutes_2024, Eugene_2020, Petaluma_2022]
-#     # beta_learner = BetaLearner(instance_list)
-#     # feature_list = ["Age Range", "Housing Status", "Gender", "Race/Ethnicity", "Educational Attainment"]
-#     # data_files = ["../data/Deschutes_2024/Deschutes_2024_cleaned.csv", "../data/Eugene_2020/Eugene_2020_cleaned.csv", "../data/Petaluma_2022/Petaluma_2022_cleaned.csv"]
-#     # data_frames = [pd.read_csv(file) for file in data_files]
-#     feature_list = ["A", "L", "D", "F", "J"]
-#     datasets = ["ABS", "ABR", "ABL"]
-#     df = pd.read_csv('../data/cleaned_anonymized_data.csv')
-#     df = df[df['DATA_ID'].isin(datasets)]
-#     combined_df = df[feature_list + ["STATUS"]]
-
-#     dropout_rates = {}
-#     for feature in feature_list:
-#         feature_values = combined_df[feature].unique()
-#         dropout_rates[feature] = {}
-#         for value in feature_values:
-#             subset = combined_df[(combined_df[feature] == value) & (combined_df["STATUS"] != "Not selected")]
-#             dropout_rate = subset["STATUS"].value_counts(normalize=True).get("Selected, dropped out", 0)
-#             dropout_rates[feature][value] = dropout_rate
-#     print(dropout_rates)
-#     # Prepare data for plotting
-#     plot_data = []
-#     for feature, values in dropout_rates.items():
-#         for value, rate in values.items():
-#             plot_data.append([feature, value, rate])
-    
-#     df = pd.DataFrame(plot_data, columns=["Feature", "Value", "Dropout Rate"])
-    
-#     # Plot clustered bar chart
-#     plt.figure(figsize=(12, 8))
-#     sns.barplot(x="Feature", y="Dropout Rate", hue="Value", data=df)
-#     plt.title("Dropout Rates by Feature")
-#     plt.xlabel("Feature")
-#     plt.ylabel("Dropout Rate")
-#     plt.legend(title="Value", bbox_to_anchor=(1.05, 1), loc='upper left')
-#     plt.tight_layout()
-#     plt.savefig("../plots/dropout_rates_by_feature.png")
-#     plt.show()
-#     return dropout_rates
 
 def check_beta_calibration(dataset):
+    '''Check the calibration of the computed beta values by comparing the expected number of dropouts 
+    to the true number of dropouts for every feature-value pair for every instance in the dataset'''
     instance_names = DATASETS[dataset][0]
     feature_list = DATASETS[dataset][1]
     instance_list = [Instance(name, file_stub=f'{dataset}/') for name in instance_names]
@@ -123,22 +83,20 @@ def check_beta_calibration(dataset):
             ax.legend().remove()
         ax.set_xlabel('')
     
-    handles, labels = axes[0].get_legend_handles_labels()
-    # fig.legend(handles, labels, title="Feature", bbox_to_anchor=(1.05, 1), loc='upper left')
-    fig.supxlabel("True Number of Dropouts", fontsize = 17)
-    # fig.supylabel("Expected Number of Dropouts")
-    
+    fig.supxlabel("True Number of Dropouts", fontsize = 17)    
     plt.tight_layout()
     plt.savefig(f"../plots/beta_calibration/{dataset}_true_vs_expected_dropouts_side_by_side.png")
     plt.close()
 
 def simulation1(dataset, loss_type='l1'):
+    '''Gets the losses for all algorithms (L1 Opt, L1 Eq, Binary Opt, Greedy, Practitioner) 
+    for all alternate budgets for all instances in the dataset on *real* dropout sets.
+    Dumps to a pickle file for later plotting'''
+    
     instance_names = DATASETS[dataset][0]
     feature_list = DATASETS[dataset][1]
     instance_list = [Instance(name, file_stub=f'{dataset}/', logging=False) for name in instance_names]
 
-    # alt_indices = [1, 4, 8, 12, 20, 30]
-    # losses_by_instance = {instance.name: {} for instance in instance_list}
     all_alt_indices = {}
     ubs = {}
     lbs = {}
@@ -147,15 +105,18 @@ def simulation1(dataset, loss_type='l1'):
     ks = {}
     true_prac_loss_tuples = {}
     for i,instance in enumerate(instance_list):
+        # learn betas on all instances except the one we're testing
         other_instances = instance_list[:i] + instance_list[i+1:]
         beta_learner = BetaLearner(other_instances, file_stub=f'{dataset}/')
         betas, file = beta_learner.learn_betas(feature_list)
         plotter.plot_betas_from_csv(file, f"Betas Learned from {[other_inst.name for other_inst in other_instances]}", f"../plots/simulation1/{dataset}/{instance.name}_betas.png")
         instance.compute_dropout_probabilities(betas)
+        
         k = len(instance.panel)
         alt_indices = [i for i in range(1, k + 1) if k % i == 0]
         if len(alt_indices) < 6:
             alt_indices = np.linspace(1, k, 6, dtype=int)
+            
         # can't use existing opt sets bc need to not depend on this instance (betas)
         alg_losses, empty_alt_losses, pool_alt_losses = get_all_losses(instance, dataset, ([instance.dropouts], [[]]), ([instance.dropouts], [[]]), alt_indices, loss=loss_type, use_existing_opt=False)
         true_prac_loss_tuple = None
@@ -207,14 +168,13 @@ def simulation1(dataset, loss_type='l1'):
     with open(f"../plots/simulation1/{dataset}/pkls/simulation1_output_loss_{loss_type}_{NUM_BINARY_SAMPLES}_{NUM_L1_SAMPLES}.pkl", "wb") as f:
         pickle.dump(output_data, f)
     
+    # uncomment if you want to plot
     # plotter.plot_losses_for_dataset(instance_names, all_alt_indices, ubs, lbs, losses, loss_labels, ks, f"../plots/simulation1/{dataset}/{dataset}_losses_{loss_type}_line_plot_with_stddev.pdf", true_prac_loss_tuples, loss_type, with_stddev=True)
     # plotter.plot_losses_for_dataset(instance_names, all_alt_indices, ubs, lbs, losses, loss_labels, ks, f"../plots/simulation1/{dataset}/{dataset}_losses_{loss_type}_line_plot_no_stddev.pdf", true_prac_loss_tuples, loss_type, with_stddev=False)
 
-        
-        
 
 def get_all_losses(instance, dataset, test_dropout_samples, binary_test_dropout_samples, alt_indices, loss = 'l1', pool_dropouts=False, use_existing_opt=True):
-    # practitioner_num_alts = len(instance.alternates)
+    '''Get the losses for all algorithms (L1 Opt, L1 Eq, Binary Opt, Greedy, Practitioner) for all alternate budgets for a given instance'''
     
     alg_losses = {label: ([], []) for label in ['L1 Opt', 'Binary Opt', 'Practitioner', 'Greedy', 'L1 Eq Probs']}
     empty_alt_losses = instance.loss([], test_dropout_samples, loss_type=loss)
@@ -229,7 +189,6 @@ def get_all_losses(instance, dataset, test_dropout_samples, binary_test_dropout_
             l1_alt_set = opt_sets["l1_opt_set"]
             binary_alt_set = opt_sets["binary_opt_set"]
             l1_eq_probs_alt_set = opt_sets["l1_eq_probs_alt_set"]
-            # greedy_alt_set = opt_sets["greedy_alt_set"]
             practitioner_alt_set = opt_sets["practitioner_alt_set"]
         else:
             l1_alt_set = instance.opt_l1(alt_budget, pool_dropouts=pool_dropouts)
@@ -243,8 +202,10 @@ def get_all_losses(instance, dataset, test_dropout_samples, binary_test_dropout_
         greedy_loss = instance.loss(greedy_alt_set[:alt_budget], test_dropout_samples, loss_type=loss)
         practitioner_loss = instance.loss(practitioner_alt_set, test_dropout_samples, loss_type=loss)
 
+        # if you want violin plots for the individual alt budgets
         # losses = l1_opt_losses + binary_opt_losses + practitioner_loss + greedy_loss + l1_eq_losses + empty_alt_losses + pool_alt_losses
         # plotter.make_violin_plot(losses, ['L1 Opt', 'Binary Opt', 'Practitioner', 'Greedy', 'L1 Eq Probs', 'Empty Alt', 'Best Case Alt (A=N)'], len(test_dropout_samples[0]), f'{instance.name} Losses, Loss Type: {loss}, {alt_budget} Alternates', f'../plots/simulation3/{dataset}/{instance.name}_loss_{loss}_{alt_budget}alts_violin.png')
+        
         # Append means and stds for each loss type
         alg_losses['L1 Opt'][0].append(np.mean(l1_opt_losses))
         alg_losses['L1 Opt'][1].append(np.std(l1_opt_losses))
@@ -264,6 +225,9 @@ def get_all_losses(instance, dataset, test_dropout_samples, binary_test_dropout_
     return alg_losses, empty_alt_losses, pool_alt_losses
         
 def simulation3(dataset, loss_metric = 'l1', pool_dropouts=False):
+    '''Saves the losses for all algorithms (L1 Opt, L1 Eq, Binary Opt, Greedy, Practitioner) for 
+    all alternate budgets for all instances in the dataset on *simulated* dropout sets to a pickle files'''
+    
     instance_names = DATASETS[dataset][0]
     feature_list = DATASETS[dataset][1]
     instance_list = [Instance(name, file_stub=f'{dataset}/') for name in instance_names]
@@ -332,6 +296,9 @@ def simulation3(dataset, loss_metric = 'l1', pool_dropouts=False):
     
    
 def opt_convergence_test(dataset, train_samples, loss_for_conv='l1'):
+    '''Tests the convergence of the optimal alternate set (in terms of loss on test sets) 
+    for all instances in the dataset by varying the number of training samples'''
+    
     if loss_for_conv not in ['l1', 'binary', 'l1_eq']:
         print("Invalid loss type")
         return None
@@ -386,7 +353,8 @@ def opt_convergence_test(dataset, train_samples, loss_for_conv='l1'):
 
             with open(f"../plots/l1_num_train_samples_convergence/{dataset}/pkls/{instance.name}_opt_convergence_{train_sample}_loss_{loss_for_conv}.pkl", "wb") as f:
                 pickle.dump(output_data, f)
-                
+        
+        # comment out to stop plotting        
         plotter.plot_losses_with_shaded_bands(
             alt_indices,
             None,
@@ -400,6 +368,9 @@ def opt_convergence_test(dataset, train_samples, loss_for_conv='l1'):
         )
     
 def calculate_opt_sets(dataset):
+    '''Calculates and saves the optimal alternate sets for each alg for all instances in the 
+    dataset and all alternate budgets in alt_indices'''
+    
     NUM_BINARY_SAMPLES = 300
     NUM_L1_SAMPLES = 300
     instance_names = DATASETS[dataset][0]
@@ -469,12 +440,16 @@ def calculate_opt_sets(dataset):
                 })
 
 def robustness_test(dataset, num_alternates = 6, loss_metric = 'l1', num_gam_draws = 10, pool_dropouts=False):
+    '''Tests the robustness of the optimal alternate sets for each alg for all instances in the
+    dataset by varying the dropout probability estimation error gamma'''
+    
     instance_names = DATASETS[dataset][0]
     feature_list = DATASETS[dataset][1]
     instance_list = [Instance(name, file_stub=f'{dataset}/') for name in instance_names]
 
     beta_learner = BetaLearner(instance_list, file_stub=f'{dataset}/')
     betas, file = beta_learner.learn_betas(feature_list)
+    
     gammas = [0, 0.2, 0.4, 0.6]
     all_losses = {instance.name: {gamma: {} for gamma in gammas} for instance in instance_list}
     for instance in [inst for inst in instance_list if inst.name == 'Petaluma_2022']:
@@ -515,10 +490,6 @@ def robustness_test(dataset, num_alternates = 6, loss_metric = 'l1', num_gam_dra
             all_losses[instance.name][gamma]['L1 Opt'] = np.mean(l1_errs)
             all_losses[instance.name][gamma]['Binary Opt'] = np.mean(binary_errs)
             all_losses[instance.name][gamma]['Greedy'] = np.mean(greedy_errs)     
-            print(f"Gamma: {gamma}")
-            print(f"L1 Opt Loss for {instance.name}: {all_losses[instance.name][gamma]['L1 Opt']}")
-            print(f"Binary Opt Loss for {instance.name}: {all_losses[instance.name][gamma]['Binary Opt']}")
-            print(f"Greedy Loss for {instance.name}: {all_losses[instance.name][gamma]['Greedy']}")
             
             with open(f"../logging/{dataset}/robustness/robustness_test_{instance.name}_losses_gamma_{gamma}_num_alts_{num_alternates}.pkl", "wb") as f:
                 pickle.dump({
@@ -568,50 +539,17 @@ def robustness_test(dataset, num_alternates = 6, loss_metric = 'l1', num_gam_dra
     
     
 if __name__== "__main__":
+    
+    ####################### Examples of how to call the functions #######################
     # robustness_test("HD", num_gam_draws=15)
     # simulation1("HD")
-    # dataset = "HD"
-    # instance_names = DATASETS[dataset][0]
-    # feature_list = DATASETS[dataset][1]
-    # instance_list = [Instance(name, num_train_samples=NUM_TRAIN_SAMPLES, file_stub=f'{dataset}/') for name in instance_names]
-
-    # beta_learner = BetaLearner(instance_list, file_stub=f'{dataset}/')
-    # betas, file = beta_learner.learn_betas(feature_list)
-    
-    # instance_list[0].compute_dropout_probabilities(betas)
-    # print(f'pre-err dropout probs: {instance_list[0].dropout_probs}')
-    # instance_list[0].generate_dropout_samples(NUM_TEST_SAMPLES, est_error=0.2)
-    # instance_list[0].generate_dropout_samples(NUM_TEST_SAMPLES, est_error=0.5)
 
     # simulation3("MASS_ALDFN", loss_metric='l1', pool_dropouts=False)
     # simulation1("MASS_ALDFN")
-    # opt_convergence_test("HD", [50, 100, 300, 500, 1000], loss_for_conv='l1')
     # opt_convergence_test("HD", [25, 50, 100, 200, 300, 500], loss_for_conv='l1')
     # opt_convergence_test("HD", [25, 50, 100, 200, 300, 500], loss_for_conv='l1_eq')
 
     # possible_loss_metrics = ['l1_dev_below', 'max_quota_dev_norm', 'max_quota_dev', 'num_unrepped']            
     # for loss in possible_loss_metrics:
     #     simulation3("HD", loss_metric=loss, pool_dropouts=False)
-
-    
-    # beta_learner = BetaLearner(instance_list, file_stub=f'{dataset}/')
-    # feature_list = ["Age Range", "Housing Status", "Gender", "Race/Ethnicity", "Educational Attainment"]
-    # betas, file = beta_learner.learn_betas(feature_list)
-    # Petaluma_2022.compute_dropout_probabilities(betas)
-    # l1_opt_set_no_drops = Petaluma_2022.opt_l1(5, pool_dropouts=False)
-    # print('l1 opt set no drops', l1_opt_set_no_drops)
-    # l1_opt_set_with_drops = Petaluma_2022.opt_l1(5, pool_dropouts=True)
-    # print('l1 opt set yes drops', l1_opt_set_with_drops)
-    # test_dropout_samples = Petaluma_2022.generate_dropout_samples(3, pool_dropouts=True)
-    # print('test dropout samples', test_dropout_samples)
-    # loss_no_drops = Petaluma_2022.loss(l1_opt_set_no_drops, test_dropout_samples, loss_type='l1', verbose=True)
-    # print('Loss for l1 opt set without drops:', loss_no_drops)
-
-    # loss_with_drops = Petaluma_2022.loss(l1_opt_set_with_drops, test_dropout_samples, loss_type='l1', verbose=True)
-    # print('Loss for l1 opt set with drops:', loss_with_drops)
-    # dataset = "HD"
-    # with open(f"../logging/{dataset}/simulation3_output.pkl", "rb") as f:
-    #     output_data = pickle.load(f)
-
-    # print(output_data)
-    check_beta_calibration("HD")
+    # check_beta_calibration("HD")
