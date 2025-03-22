@@ -1,0 +1,25 @@
+feature,value,beta
+init,0,0.9999
+Age Range,65-74,0.8575666514152724
+Age Range,45-54,0.8337620719350249
+Age Range,55-64,0.9095495011532615
+Age Range,75_and_up,0.9999
+Age Range,16-24,0.9999
+Age Range,35-44,0.9999
+Age Range,25-34,0.9999
+Housing Status,Own,0.9999
+Housing Status,Unhoused,0.9999
+Housing Status,Rent,0.9999
+Gender,Male,0.9999
+Gender,Female,0.9999
+Gender,Another gender identity,0.9999
+Race/Ethnicity,Black,0.9999
+Race/Ethnicity,Native_American,0.0001
+Race/Ethnicity,Latinx,0.9999
+Race/Ethnicity,AAPI,0.5833060357285196
+Race/Ethnicity,White,0.9999
+Race/Ethnicity,Multiracial,0.799939988406835
+Educational Attainment,Some_college,0.9999
+Educational Attainment,Some_schooling,0.9999
+Educational Attainment,Bachelors,0.9999
+Educational Attainment,High_school,0.9999
